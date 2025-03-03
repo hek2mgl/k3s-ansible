@@ -253,9 +253,25 @@
         dest: "/etc/rancher/k3s/registries.yaml"
         mode: "0644"
 
+- name: Check if the tls certificate directory exists
+  ansible.builtin.stat:
+    path: "/var/lib/rancher/k3s/server/tls/"
+  register: tls_directory_stat_result
+
 - name: Generate custom ca certs
-  when: k3s_root_ca_cert is defined
+  when:
+    - k3s_root_ca_cert is defined
+    - tls_directory_stat_result.stat.exists == false
   block:
+    - name: Create the tls certificate directory
+      ansible.builtin.file:
+        path: "/var/lib/rancher/k3s/server/tls"
+        state: directory
+        owner: root
+        group: root
+        recurse: true
+        mode: "0700"
+
     - name: Assert that k3s_intermediate_ca_key is defined
       when: k3s_intermediate_ca_cert is defined
       ansible.builtin.assert:
@@ -264,7 +280,7 @@
           k3s_intermediate_ca_key must also be specified
           when k3s_intermediate_ca_cert is provided
 
-    - name: Copy intermediate ca cert and key
+    - name: Copy the intermediate ca cert and key
       when: k3s_intermediate_ca_cert is defined
       ansible.builtin.copy:
         content: "{{ item.content }}"
@@ -278,9 +294,9 @@
         - content: "{{ k3s_intermediate_ca_key }}"
           dest: "/var/lib/rancher/k3s/server/tls/intermediate-ca.key"
 
-    - name: Copy root ca cert
+    - name: Copy the root ca cert
       ansible.builtin.copy:
-        src: "{{ k3s_root_ca_cert }}"
+        content: "{{ k3s_root_ca_cert }}"
         dest: "/var/lib/rancher/k3s/server/tls/root-ca.pem"
         owner: root
         group: root
@@ -290,11 +306,11 @@
       when: k3s_intermediate_ca_cert is not defined
       ansible.builtin.assert:
         that: k3s_root_ca_key is defined
-        fail_msg: |-
+        fail_msg: >
           The k3s_root_ca_key must be defined when
-          k3s_intermediate_ca_cert/k3s_intermediate_ca_key are missing
+          k3s_intermediate_ca_cert and k3s_intermediate_ca_key are missing
 
-    - name: Copy root ca key
+    - name: Copy the root ca key
       when: k3s_intermediate_ca_cert is not defined
       ansible.builtin.copy:
         src: "{{ k3s_root_ca_cert }}"
@@ -304,9 +320,9 @@
         mode: "0400"
 
     - name: Generate custom k3s ca-certs
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: "sh -"
-        stdin: "{{ lookup('ansible.builtin.url', custom_ca_certs_script_url) }}"
+        stdin: "{{ lookup('ansible.builtin.url', prereq_custom_ca_certs_script_url) }}"
 
     - name: Remove temporary files
       ansible.builtin.file:
